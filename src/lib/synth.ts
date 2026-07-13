@@ -4,35 +4,110 @@
  */
 
 import * as Tone from 'tone';
-import { SynthSettings, SynthPreset } from '../types';
+import { SynthSettings, SynthPresetID } from '../types';
 
 class SynthEngine {
-  private polySynth: Tone.PolySynth;
+  private polySynth: Tone.PolySynth<Tone.Synth>;
   private fmSynth: Tone.PolySynth<Tone.FMSynth>;
   private amSynth: Tone.PolySynth<Tone.AMSynth>;
+  private sampler: Tone.Sampler;
   
   private filter: Tone.Filter;
+  private filterEnvelope: Tone.FrequencyEnvelope;
   private delay: Tone.FeedbackDelay;
   private reverb: Tone.Reverb;
   private chorus: Tone.Chorus;
-  private phaser: Tone.Phaser;
+  private distortion: Tone.Distortion;
+  private eq: Tone.EQ3;
+  private lfo: Tone.LFO;
   
-  private currentEngine: 'poly' | 'fm' | 'am' = 'poly';
+  private currentEngine: 'poly' | 'fm' | 'am' | 'sampler' = 'poly';
 
   constructor() {
-    // Advanced Effects Chain
-    this.filter = new Tone.Filter(2000, 'lowpass').toDestination();
-    this.reverb = new Tone.Reverb({ decay: 4, wet: 0.5 }).connect(this.filter);
-    this.delay = new Tone.FeedbackDelay('8n', 0.5).connect(this.reverb);
-    this.chorus = new Tone.Chorus(4, 2.5, 0.5).connect(this.delay).start();
-    this.phaser = new Tone.Phaser({ frequency: 0.5, octaves: 3, baseFrequency: 1000 }).connect(this.chorus);
+    // 1. High-Performance Signal Path
+    this.filter = new Tone.Filter({
+      frequency: 2000,
+      type: 'lowpass',
+      rolloff: -24,
+      Q: 1
+    }).toDestination();
 
-    // Multiple Synthesis Engines
-    this.polySynth = new Tone.PolySynth(Tone.Synth).connect(this.phaser);
-    this.fmSynth = new Tone.PolySynth(Tone.FMSynth).connect(this.phaser);
-    this.amSynth = new Tone.PolySynth(Tone.AMSynth).connect(this.phaser);
+    this.reverb = new Tone.Reverb({ decay: 4, wet: 0.3 }).connect(this.filter);
+    this.delay = new Tone.FeedbackDelay('8n', 0.4).connect(this.reverb);
+    this.chorus = new Tone.Chorus(4, 2.5, 0.3).connect(this.delay).start();
+    this.distortion = new Tone.Distortion(0.4).connect(this.chorus);
+    this.eq = new Tone.EQ3(0, 0, 0).connect(this.distortion);
+
+    // 2. Dedicated Filter Envelope
+    this.filterEnvelope = new Tone.FrequencyEnvelope({
+      attack: 0.1,
+      decay: 0.2,
+      sustain: 0.5,
+      release: 1,
+      baseFrequency: 200,
+      octaves: 4,
+      exponent: 2
+    }).connect(this.filter.frequency);
+
+    // 3. Modulation Matrix (LFO)
+    this.lfo = new Tone.LFO('4n', 0, 100).start();
+
+    // 4. Synthesis Engines with Voice Stealing (maxPolyphony)
+    this.polySynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'sawtooth' },
+      envelope: { attack: 0.01, release: 1 }
+    }).connect(this.distortion);
+    this.polySynth.maxPolyphony = 24;
+
+    this.fmSynth = new Tone.PolySynth(Tone.FMSynth, {
+      envelope: { attack: 0.01, release: 1 }
+    }).connect(this.distortion);
+    this.fmSynth.maxPolyphony = 16;
+
+    this.amSynth = new Tone.PolySynth(Tone.AMSynth, {
+      envelope: { attack: 0.1, release: 2 }
+    }).connect(this.eq);
+    this.amSynth.maxPolyphony = 16;
+
+    this.sampler = new Tone.Sampler({
+      urls: {
+        A0: "A0.mp3",
+        C1: "C1.mp3",
+        "D#1": "Ds1.mp3",
+        "F#1": "Fs1.mp3",
+        A1: "A1.mp3",
+        C2: "C2.mp3",
+        "D#2": "Ds2.mp3",
+        "F#2": "Fs2.mp3",
+        A2: "A2.mp3",
+        C3: "C3.mp3",
+        "D#3": "Ds3.mp3",
+        "F#3": "Fs3.mp3",
+        A3: "A3.mp3",
+        C4: "C4.mp3",
+        "D#4": "Ds4.mp3",
+        "F#4": "Fs4.mp3",
+        A4: "A4.mp3",
+        C5: "C5.mp3",
+        "D#5": "Ds5.mp3",
+        "F#5": "Fs5.mp3",
+        A5: "A5.mp3",
+        C6: "C6.mp3",
+        "D#6": "Ds6.mp3",
+        "F#6": "Fs6.mp3",
+        A6: "A6.mp3",
+        C7: "C7.mp3",
+        "D#7": "Ds7.mp3",
+        "F#7": "Fs7.mp3",
+        A7: "A7.mp3",
+        C8: "C8.mp3"
+      },
+      baseUrl: "https://tonejs.github.io/audio/salamander/",
+      onload: () => console.log("Piano Samples Loaded")
+    }).connect(this.eq);
     
-    this.delay.wet.value = 0.3;
+    // Initial State
+    this.applyPreset('modern-poly');
   }
 
   async init() {
@@ -40,117 +115,157 @@ class SynthEngine {
     await this.reverb.ready;
   }
 
-  setSettings(settings: SynthSettings) {
-    this.filter.frequency.value = settings.cutoff;
-    this.filter.Q.value = settings.resonance;
-    
-    const envelope = {
-      attack: settings.attack,
-      decay: settings.decay,
-      sustain: settings.sustain,
-      release: settings.release,
-    };
-
-    [this.polySynth, this.fmSynth, this.amSynth].forEach(s => {
-      s.set({ envelope });
-    });
-
-    this.delay.wet.value = settings.delayMix;
-    this.reverb.wet.value = settings.reverbMix;
-
-    this.applyPreset(settings.preset);
-  }
-
-  private applyPreset(preset: SynthPreset) {
-    // Reset modulation/effects for specific presets
-    this.phaser.wet.value = 0;
-    this.chorus.wet.value = 0.5;
-
-    switch (preset) {
-      case 'modern-poly':
-        this.currentEngine = 'poly';
-        this.polySynth.set({ oscillator: { type: 'sawtooth' } });
+  // High-performance direct updates
+  updateParameter(key: string, value: number) {
+    switch (key) {
+      case 'eqLow':
+        this.eq.low.value = value;
         break;
-      
-      case 'cinematic-pad':
-        this.currentEngine = 'am';
-        this.phaser.wet.value = 0.8;
-        this.amSynth.set({
-          oscillator: { type: 'sine' },
-          modulation: { type: 'square' }
-        });
+      case 'eqMid':
+        this.eq.mid.value = value;
         break;
-
-      case 'fm-electric-tine':
-        this.currentEngine = 'fm';
-        this.fmSynth.set({
-          harmonicity: 3.5,
-          modulationIndex: 10,
-          oscillator: { type: 'sine' },
-          modulation: { type: 'triangle' }
-        });
+      case 'eqHigh':
+        this.eq.high.value = value;
         break;
-
-      case 'sub-bass-growl':
-        this.currentEngine = 'poly';
-        this.polySynth.set({ oscillator: { type: 'fatsawtooth', count: 3, spread: 30 } });
+      case 'cutoff':
+        this.filterEnvelope.baseFrequency = value;
         break;
-
-      case 'shimmer-glass':
-        this.currentEngine = 'fm';
-        this.fmSynth.set({
-          harmonicity: 10,
-          modulationIndex: 40,
-          oscillator: { type: 'sine' }
-        });
+      case 'resonance':
+        this.filter.Q.value = value;
         break;
-
-      case 'ambient-nebula':
-        this.currentEngine = 'am';
-        this.chorus.wet.value = 1;
-        this.amSynth.set({
-          oscillator: { type: 'fatsawtooth' },
-          modulation: { type: 'sine' }
-        });
+      case 'delayMix':
+        this.delay.wet.value = value;
         break;
-
-      case 'retro-future-lead':
-        this.currentEngine = 'poly';
-        this.polySynth.set({ oscillator: { type: 'pulse', width: 0.2 } });
+      case 'reverbMix':
+        this.reverb.wet.value = value;
         break;
-
-      case 'modern-piano':
-        this.currentEngine = 'fm';
-        this.fmSynth.set({
-          harmonicity: 1.5,
-          modulationIndex: 12,
-          oscillator: { type: 'sine' },
-          modulation: { type: 'sine' },
-          envelope: {
-            attack: 0.005,
-            decay: 1.5,
-            sustain: 0.1,
-            release: 1.2
-          }
-        });
-        this.chorus.wet.value = 0.2;
+      case 'chorusMix':
+        this.chorus.wet.value = value;
+        break;
+      case 'drive':
+        this.distortion.distortion = value;
+        break;
+      case 'attack':
+        this.setEnvelopeParam('attack', value);
+        break;
+      case 'release':
+        this.setEnvelopeParam('release', value);
+        break;
+      case 'filterAttack':
+        this.filterEnvelope.attack = value;
+        break;
+      case 'filterRelease':
+        this.filterEnvelope.release = value;
         break;
     }
   }
 
+  private setEnvelopeParam(param: string, value: number) {
+    [this.polySynth, this.fmSynth, this.amSynth].forEach(s => {
+      s.set({ envelope: { [param]: value } });
+    });
+  }
+
+  private lastPreset: SynthPresetID | null = null;
+
+  setSettings(settings: SynthSettings) {
+    Object.entries(settings).forEach(([key, value]) => {
+      if (typeof value === 'number') this.updateParameter(key, value);
+    });
+    
+    if (settings.preset !== this.lastPreset) {
+      this.applyPreset(settings.preset);
+      this.lastPreset = settings.preset;
+    }
+  }
+
+  private applyPreset(preset: SynthPresetID) {
+    this.chorus.wet.value = 0.3;
+    this.distortion.distortion = 0;
+    
+    // Defer non-critical synth updates to avoid blocking the audio thread
+    switch (preset) {
+      case 'modern-poly':
+        if (this.currentEngine !== 'poly') {
+          this.currentEngine = 'poly';
+          this.polySynth.set({ oscillator: { type: 'sawtooth' } });
+        }
+        break;
+      case 'cinematic-pad':
+        this.currentEngine = 'am';
+        this.amSynth.set({ 
+          oscillator: { type: 'sine' }, 
+          envelope: { attack: 1.5, release: 2.5 } 
+        });
+        this.filterEnvelope.attack = 1.5;
+        this.filterEnvelope.release = 2.5;
+        this.chorus.wet.value = 0.8;
+        break;
+      case 'modern-piano':
+        this.currentEngine = 'sampler';
+        break;
+      case 'sub-bass-growl':
+        this.currentEngine = 'poly';
+        this.polySynth.set({ 
+          oscillator: { type: 'fatsawtooth', count: 3 },
+          envelope: { attack: 0.05, release: 0.5 }
+        });
+        this.distortion.distortion = 0.4;
+        break;
+      case 'fm-electric-tine':
+        this.currentEngine = 'fm';
+        this.fmSynth.set({
+          harmonicity: 3.5,
+          modulationIndex: 15,
+          envelope: { attack: 0.01, release: 1.5 }
+        });
+        break;
+      case 'shimmer-glass':
+        this.currentEngine = 'fm';
+        this.fmSynth.set({
+          harmonicity: 10,
+          modulationIndex: 30,
+          envelope: { attack: 0.1, release: 1 }
+        });
+        this.reverb.wet.value = 0.6;
+        break;
+      case 'ambient-nebula':
+        this.currentEngine = 'am';
+        this.amSynth.set({
+          oscillator: { type: 'fatsawtooth' },
+          envelope: { attack: 2, release: 4 }
+        });
+        this.filterEnvelope.attack = 2.5;
+        this.chorus.wet.value = 1;
+        break;
+      case 'retro-future-lead':
+        this.currentEngine = 'poly';
+        this.polySynth.set({ 
+          oscillator: { type: 'pulse', width: 0.2 },
+          envelope: { attack: 0.01, release: 0.3 }
+        });
+        break;
+      default:
+        this.currentEngine = 'poly';
+    }
+  }
+
   triggerAttack(note: string, velocity: number) {
-    const engine = this.getEngine();
-    engine.triggerAttack(note, Tone.now(), velocity);
+    const time = Tone.now();
+    this.getEngine().triggerAttack(note, time, velocity);
+    this.filterEnvelope.triggerAttack(time);
   }
 
   triggerRelease(note: string) {
-    const engine = this.getEngine();
-    engine.triggerRelease(note, Tone.now());
+    const time = Tone.now();
+    this.getEngine().triggerRelease(note, time);
+    this.filterEnvelope.triggerRelease(time);
   }
 
   private getEngine() {
     if (this.currentEngine === 'fm') return this.fmSynth;
     if (this.currentEngine === 'am') return this.amSynth;
+    if (this.currentEngine === 'sampler') return this.sampler;
     return this.polySynth;
   }
 

@@ -10,7 +10,7 @@ export interface MIDIMessage {
   timestamp: number;
 }
 
-export type SynthPreset = 
+export type SynthPresetID = 
   | 'modern-poly' 
   | 'cinematic-pad' 
   | 'fm-electric-tine' 
@@ -20,6 +20,14 @@ export type SynthPreset =
   | 'retro-future-lead'
   | 'modern-piano';
 
+export interface SynthPreset {
+  id: SynthPresetID;
+  name: string;
+  category: 'Piano' | 'Synth' | 'Pad' | 'Lead' | 'Bass';
+  engine: 'poly' | 'fm' | 'am';
+  settings: Partial<SynthSettings>;
+}
+
 export interface SynthSettings {
   cutoff: number;
   resonance: number;
@@ -27,7 +35,16 @@ export interface SynthSettings {
   decay: number;
   sustain: number;
   release: number;
+  filterAttack: number;
+  filterDecay: number;
+  filterSustain: number;
+  filterRelease: number;
   delayMix: number;
   reverbMix: number;
-  preset: SynthPreset;
+  chorusMix: number;
+  drive: number;
+  eqLow: number;
+  eqMid: number;
+  eqHigh: number;
+  preset: SynthPresetID;
 }

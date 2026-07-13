@@ -31,15 +31,16 @@ export function useMIDI() {
     }
   }, []);
 
-  const onMessage = useCallback((callback: (status: number, note: number, velocity: number) => void) => {
+  const onMessage = useCallback((callback: (status: number, data1: number, data2: number) => void) => {
     if (!midiAccess || !selectedInput) return;
 
     const input = midiAccess.inputs.get(selectedInput);
     if (!input) return;
 
     const listener = (event: any) => {
-      const [status, note, velocity] = event.data;
-      callback(status, note, velocity);
+      const [status, data1, data2] = event.data;
+      // Pass raw data for Note On/Off (144/128) and CC (176)
+      callback(status, data1, data2);
     };
 
     input.onmidimessage = listener;

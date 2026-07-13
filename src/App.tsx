@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Piano, Settings2, Waves, Zap, Activity, Info, Music } from 'lucide-react';
 import { useMIDI } from './hooks/useMIDI';
 import { synthEngine } from './lib/synth';
-import { SynthSettings, SynthPreset } from './types';
+import { SynthSettings, SynthPresetID } from './types';
 import { Knob } from './components/Knob';
 import { Oscilloscope } from './components/Oscilloscope';
 
@@ -20,20 +20,29 @@ const INITIAL_SETTINGS: SynthSettings = {
   decay: 0.2,
   sustain: 0.5,
   release: 1.0,
+  filterAttack: 0.1,
+  filterDecay: 0.2,
+  filterSustain: 0.5,
+  filterRelease: 1.0,
   delayMix: 0.2,
   reverbMix: 0.3,
+  chorusMix: 0.3,
+  drive: 0,
+  eqLow: 0,
+  eqMid: 0,
+  eqHigh: 0,
   preset: 'modern-poly'
 };
 
-const PRESETS: { id: SynthPreset; label: string; icon: any }[] = [
-  { id: 'modern-poly', label: 'Modern Poly', icon: Zap },
-  { id: 'cinematic-pad', label: 'Cinematic Pad', icon: Waves },
-  { id: 'fm-electric-tine', label: 'Electric Tine', icon: Music },
-  { id: 'sub-bass-growl', label: 'Sub Growl', icon: Activity },
-  { id: 'shimmer-glass', label: 'Shimmer Glass', icon: Zap },
-  { id: 'ambient-nebula', label: 'Nebula Pad', icon: Waves },
-  { id: 'retro-future-lead', label: 'Retro Lead', icon: Activity },
-  { id: 'modern-piano', label: 'Modern Piano', icon: Music },
+const PRESETS: { id: SynthPresetID; label: string; icon: any; category: string }[] = [
+  { id: 'modern-poly', label: 'Modern Poly', icon: Zap, category: 'Synth' },
+  { id: 'cinematic-pad', label: 'Cinematic Pad', icon: Waves, category: 'Pad' },
+  { id: 'fm-electric-tine', label: 'Electric Tine', icon: Music, category: 'Piano' },
+  { id: 'sub-bass-growl', label: 'Sub Growl', icon: Activity, category: 'Bass' },
+  { id: 'shimmer-glass', label: 'Shimmer Glass', icon: Zap, category: 'Lead' },
+  { id: 'ambient-nebula', label: 'Nebula Pad', icon: Waves, category: 'Pad' },
+  { id: 'retro-future-lead', label: 'Retro Lead', icon: Activity, category: 'Lead' },
+  { id: 'modern-piano', label: 'Modern Piano', icon: Music, category: 'Piano' },
 ];
 
 export default function App() {
@@ -41,8 +50,14 @@ export default function App() {
   const [settings, setSettings] = useState<SynthSettings>(INITIAL_SETTINGS);
   const [analyser, setAnalyser] = useState<Tone.Analyser | null>(null);
   const [lastNote, setLastNote] = useState<{ name: string; vel: number } | null>(null);
+  const [savedPresets, setSavedPresets] = useState<Record<string, SynthSettings>>({});
   const { inputs, selectedInput, setSelectedInput, onMessage } = useMIDI();
   
+  useEffect(() => {
+    const saved = localStorage.getItem('psr_presets');
+    if (saved) setSavedPresets(JSON.parse(saved));
+  }, []);
+
   useEffect(() => {
     if (isStarted) {
       synthEngine.setSettings(settings);
@@ -55,17 +70,40 @@ export default function App() {
     setIsStarted(true);
   };
 
+  const saveCurrentPreset = () => {
+    const name = prompt('Preset Name:');
+    if (name) {
+      const updated = { ...savedPresets, [name]: settings };
+      setSavedPresets(updated);
+      localStorage.setItem('psr_presets', JSON.stringify(updated));
+    }
+  };
+
   useEffect(() => {
     if (!isStarted) return;
 
-    const cleanup = onMessage((status, note, velocity) => {
-      const frequency = Tone.Frequency(note, "midi").toNote();
+    const cleanup = onMessage((status, data1, data2) => {
+      // MIDI Channel 1 Status: 144 (Note On), 128 (Note Off), 176 (Control Change)
       
-      if (status === 144 && velocity > 0) {
-        synthEngine.triggerAttack(frequency, velocity / 127);
-        setLastNote({ name: frequency, vel: velocity });
-      } else if (status === 128 || (status === 144 && velocity === 0)) {
+      if (status === 144 && data2 > 0) {
+        const frequency = Tone.Frequency(data1, "midi").toNote();
+        synthEngine.triggerAttack(frequency, data2 / 127);
+        setLastNote({ name: frequency, vel: data2 });
+      } else if (status === 128 || (status === 144 && data2 === 0)) {
+        const frequency = Tone.Frequency(data1, "midi").toNote();
         synthEngine.triggerRelease(frequency);
+      } else if (status === 176) {
+        // Standard CC Mappings
+        // CC 74: Cutoff, CC 71: Resonance, CC 73: Attack, CC 72: Release
+        if (data1 === 74) {
+          const val = (data2 / 127) * 9950 + 50;
+          synthEngine.updateParameter('cutoff', val);
+          setSettings(prev => ({ ...prev, cutoff: val }));
+        } else if (data1 === 71) {
+          const val = (data2 / 127) * 20;
+          synthEngine.updateParameter('resonance', val);
+          setSettings(prev => ({ ...prev, resonance: val }));
+        }
       }
     });
 
@@ -169,7 +207,12 @@ export default function App() {
               </div>
 
               <div className="flex gap-3">
-                <button className="px-4 py-2 bg-[#2A2A2E] hover:bg-[#35353A] text-xs font-bold rounded-md transition-colors uppercase tracking-widest">Settings</button>
+                <button 
+                  onClick={saveCurrentPreset}
+                  className="px-4 py-2 bg-[#2A2A2E] hover:bg-[#35353A] text-xs font-bold rounded-md transition-colors uppercase tracking-widest"
+                >
+                  Save Preset
+                </button>
                 <button className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-md transition-colors uppercase tracking-widest shadow-lg shadow-blue-600/10">Export</button>
               </div>
             </header>
@@ -187,9 +230,9 @@ export default function App() {
                   </div>
                 </div>
                 
-                <nav className="flex-1 overflow-y-auto">
-                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-6 tracking-widest border-b border-[#2A2A2E] pb-2">Modern Poly Engine</p>
-                  <ul className="space-y-1">
+                <nav className="flex-1 overflow-y-auto custom-scrollbar">
+                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-6 tracking-widest border-b border-[#2A2A2E] pb-2">Factory Presets</p>
+                  <ul className="space-y-1 mb-10">
                     {PRESETS.map(p => (
                       <li 
                         key={p.id}
@@ -204,14 +247,31 @@ export default function App() {
                         {p.label}
                       </li>
                     ))}
-                    <li className="px-4 py-3 rounded-lg text-slate-600 text-sm italic border-t border-zinc-800/50 mt-4">More expansion packs...</li>
                   </ul>
+
+                  {Object.keys(savedPresets).length > 0 && (
+                    <>
+                      <p className="text-[10px] font-bold uppercase text-slate-500 mb-6 tracking-widest border-b border-[#2A2A2E] pb-2">User Library</p>
+                      <ul className="space-y-1">
+                        {Object.entries(savedPresets).map(([name, s]) => (
+                          <li 
+                            key={name}
+                            onClick={() => setSettings(s)}
+                            className="px-4 py-3 rounded-lg text-sm font-medium cursor-pointer transition-all flex items-center gap-3 hover:bg-[#1E1E21] text-slate-400 hover:text-slate-200"
+                          >
+                            <Settings2 size={16} />
+                            {name}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </nav>
 
                 <div className="mt-auto pt-8 border-t border-[#2A2A2E]">
                   <div className="p-4 bg-[#1E1E21] rounded-xl border border-[#2A2A2E]">
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Engine Mode</p>
-                    <p className="text-xs font-bold text-slate-200">VST3 MULTI-CORE 64-BIT</p>
+                    <p className="text-xs font-bold text-slate-200">HI-RES AUDIO WORKLET</p>
                   </div>
                 </div>
               </aside>
@@ -222,81 +282,63 @@ export default function App() {
                   <Oscilloscope analyser={analyser} />
                 </section>
 
-                <div className="grid grid-cols-12 gap-8 mb-10 flex-1">
-                  {/* ADSR Section */}
-                  <div className="col-span-12 lg:col-span-4 bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
-                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">Envelope (ADSR)</h3>
-                    <div className="grid grid-cols-4 gap-4 items-end h-48">
-                      {[
-                        { label: 'A', value: settings.attack, key: 'attack' },
-                        { label: 'D', value: settings.decay, key: 'decay' },
-                        { label: 'S', value: settings.sustain, key: 'sustain' },
-                        { label: 'R', value: settings.release, key: 'release' }
-                      ].map((env) => (
-                        <div key={env.label} className="flex flex-col items-center gap-3 h-full">
-                          <div className="w-full bg-[#1E1E21] h-full rounded-md relative overflow-hidden flex flex-col justify-end border border-[#2A2A2E]">
-                            <motion.div 
-                              className="bg-blue-500/40 w-full border-t border-blue-400"
-                              initial={false}
-                              animate={{ height: `${(env.value / 4) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] font-mono font-bold text-slate-500">{env.label}</span>
-                        </div>
-                      ))}
+                <div className="grid grid-cols-12 gap-8 mb-10">
+                  {/* ADSR Sections */}
+                  <div className="col-span-12 xl:col-span-6 bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
+                    <div className="flex items-center justify-between mb-8 border-b border-[#2A2A2E] pb-4">
+                      <h3 className="text-[10px] font-bold uppercase text-slate-500 tracking-widest">Envelopes</h3>
+                      <div className="flex gap-4">
+                        <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded">AMP</span>
+                        <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded">FILTER</span>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 mt-8">
-                       <Knob id="attack" label="Attack" min={0.01} max={4} value={settings.attack} onChange={(v) => updateSetting('attack', v)} />
-                       <Knob id="decay" label="Decay" min={0.01} max={4} value={settings.decay} onChange={(v) => updateSetting('decay', v)} />
-                    </div>
-                  </div>
-
-                  {/* Filter Section */}
-                  <div className="col-span-12 lg:col-span-4 bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
-                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">Filter Matrix</h3>
-                    <div className="space-y-8">
-                      <div>
-                        <div className="flex justify-between text-[10px] mb-3 uppercase tracking-widest text-slate-400"><span>Cutoff</span><span className="font-mono text-emerald-500">{(settings.cutoff/1000).toFixed(2)} kHz</span></div>
-                        <div className="h-2 bg-[#1E1E21] rounded-full overflow-hidden border border-[#2A2A2E] cursor-pointer" onClick={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const val = ((e.clientX - rect.left) / rect.width) * 9950 + 50;
-                          updateSetting('cutoff', val);
-                        }}>
-                          <motion.div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" style={{ width: `${((settings.cutoff - 50) / 9950) * 100}%` }} />
+                    <div className="grid grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                        <p className="text-[10px] text-slate-600 font-bold uppercase">Amp Env</p>
+                        <div className="grid grid-cols-2 gap-4">
+                           <Knob id="attack" label="A" min={0.01} max={4} value={settings.attack} onChange={(v) => updateSetting('attack', v)} />
+                           <Knob id="release" label="R" min={0.01} max={4} value={settings.release} onChange={(v) => updateSetting('release', v)} />
                         </div>
                       </div>
-                      <div>
-                        <div className="flex justify-between text-[10px] mb-3 uppercase tracking-widest text-slate-400"><span>Resonance</span><span className="font-mono text-emerald-500">{settings.resonance.toFixed(1)} Q</span></div>
-                        <div className="h-2 bg-[#1E1E21] rounded-full overflow-hidden border border-[#2A2A2E]">
-                          <motion.div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" style={{ width: `${(settings.resonance / 20) * 100}%` }} />
+                      <div className="space-y-6">
+                        <p className="text-[10px] text-slate-600 font-bold uppercase">Filter Env</p>
+                        <div className="grid grid-cols-2 gap-4">
+                           <Knob id="filterAttack" label="A" min={0.01} max={4} value={settings.filterAttack} onChange={(v) => updateSetting('filterAttack', v)} />
+                           <Knob id="filterRelease" label="R" min={0.01} max={4} value={settings.filterRelease} onChange={(v) => updateSetting('filterRelease', v)} />
                         </div>
-                      </div>
-                      <div className="flex justify-around pt-4">
-                        <Knob id="res" label="Resonance" min={0} max={20} value={settings.resonance} onChange={(v) => updateSetting('resonance', v)} />
-                        <Knob id="cutoff_knob" label="Cutoff" min={50} max={10000} value={settings.cutoff} onChange={(v) => updateSetting('cutoff', v)} />
                       </div>
                     </div>
                   </div>
 
-                  {/* Effects Section */}
-                  <div className="col-span-12 lg:col-span-4 bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
-                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">FX Chain</h3>
-                    <div className="space-y-3">
-                      {[
-                        { label: 'Reverb', value: settings.reverbMix, key: 'reverbMix' },
-                        { label: 'Delay', value: settings.delayMix, key: 'delayMix' },
-                        { label: 'Chorus', value: 0.2, key: 'chorus' },
-                        { label: 'Drive', value: 0.1, key: 'drive' }
-                      ].map((fx) => (
-                        <div key={fx.label} className="flex items-center justify-between p-3 bg-[#1E1E21] rounded-lg border border-[#2A2A2E] group hover:border-blue-500/30 transition-all">
-                          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest group-hover:text-slate-200">{fx.label}</span>
-                          <div className={`w-3 h-3 rounded-full ${fx.value > 0 ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-slate-700'}`}></div>
-                        </div>
-                      ))}
+                  {/* Filter & FX Section */}
+                  <div className="col-span-12 xl:col-span-6 grid grid-cols-2 gap-8">
+                    <div className="bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
+                      <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">Filter</h3>
+                      <div className="space-y-6">
+                         <Knob id="cutoff" label="Cutoff" min={50} max={10000} value={settings.cutoff} onChange={(v) => updateSetting('cutoff', v)} />
+                         <Knob id="resonance" label="Res" min={0} max={20} value={settings.resonance} onChange={(v) => updateSetting('resonance', v)} />
+                      </div>
                     </div>
-                    <div className="flex justify-around mt-10">
-                      <Knob id="reverb" label="Reverb" min={0} max={1} value={settings.reverbMix} onChange={(v) => updateSetting('reverbMix', v)} />
-                      <Knob id="delay" label="Delay" min={0} max={1} value={settings.delayMix} onChange={(v) => updateSetting('delayMix', v)} />
+                    <div className="bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
+                      <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">FX Rack</h3>
+                      <div className="grid grid-cols-2 gap-y-8">
+                         <Knob id="reverbMix" label="Rev" min={0} max={1} value={settings.reverbMix} onChange={(v) => updateSetting('reverbMix', v)} />
+                         <Knob id="delayMix" label="Dly" min={0} max={1} value={settings.delayMix} onChange={(v) => updateSetting('delayMix', v)} />
+                         <Knob id="chorusMix" label="Cho" min={0} max={1} value={settings.chorusMix} onChange={(v) => updateSetting('chorusMix', v)} />
+                         <Knob id="drive" label="Drv" min={0} max={1} value={settings.drive} onChange={(v) => updateSetting('drive', v)} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-12 gap-8 mb-10">
+                  {/* EQ Section */}
+                  <div className="col-span-12 bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
+                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">Master EQ (3-Band)</h3>
+                    <div className="flex justify-around items-center max-w-2xl mx-auto">
+                       <Knob id="eqLow" label="Low Gain" min={-24} max={24} value={settings.eqLow} onChange={(v) => updateSetting('eqLow', v)} />
+                       <Knob id="eqMid" label="Mid Gain" min={-24} max={24} value={settings.eqMid} onChange={(v) => updateSetting('eqMid', v)} />
+                       <Knob id="eqHigh" label="High Gain" min={-24} max={24} value={settings.eqHigh} onChange={(v) => updateSetting('eqHigh', v)} />
                     </div>
                   </div>
                 </div>
@@ -308,19 +350,23 @@ export default function App() {
                     <span className="text-2xl font-mono text-blue-500 font-bold">01</span>
                   </div>
                   <div className="flex flex-1 items-center gap-1.5 opacity-60 overflow-hidden h-10">
-                    {[...Array(24)].map((_, i) => (
-                      <div 
-                        key={i} 
-                        className={`flex-1 h-full rounded-sm border border-[#2A2A2E] ${
-                          i % 7 === 1 || i % 7 === 3 ? 'bg-[#0A0A0B] h-6' : 'bg-white/90'
-                        } ${lastNote && Tone.Frequency(lastNote.name).toMidi() % 24 === i ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)] border-blue-400' : ''}`} 
-                      />
-                    ))}
+                    {[...Array(24)].map((_, i) => {
+                      const midiNum = lastNote ? Tone.Frequency(lastNote.name).toMidi() : 0;
+                      const isActive = lastNote && midiNum % 24 === i;
+                      return (
+                        <div 
+                          key={i} 
+                          className={`flex-1 h-full rounded-sm border border-[#2A2A2E] ${
+                            i % 7 === 1 || i % 7 === 3 ? 'bg-[#0A0A0B] h-6' : 'bg-white/90'
+                          } ${isActive ? 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.8)] border-blue-400' : ''}`} 
+                        />
+                      );
+                    })}
                   </div>
                   <div className="pl-10 text-right border-l border-[#2A2A2E]">
                     <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-1">Last Message</p>
-                    <p className="text-xs font-mono text-slate-400">
-                      {lastNote ? `${lastNote.name.toUpperCase()} (Vel: ${lastNote.vel})` : 'WAITING FOR MIDI...'}
+                    <p className="text-xs font-mono text-slate-400 uppercase">
+                      {lastNote ? `${lastNote.name} @ ${lastNote.vel}` : 'Waiting...'}
                     </p>
                   </div>
                 </footer>

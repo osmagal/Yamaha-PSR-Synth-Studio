@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useRef, useEffect } from 'react';
-import { motion } from 'motion/react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Plus, Minus } from 'lucide-react';
+import { synthEngine } from '../lib/synth';
 
 interface KnobProps {
   label: string;
@@ -16,52 +17,74 @@ interface KnobProps {
 }
 
 export function Knob({ label, value, min, max, onChange, id }: KnobProps) {
-  const isDragging = useRef(false);
-  const startY = useRef(0);
-  const startValue = useRef(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    isDragging.current = true;
-    startY.current = e.clientY;
-    startValue.current = value;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
-
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isDragging.current) return;
-    const deltaY = startY.current - e.clientY;
+  const updateValue = (delta: number) => {
     const range = max - min;
-    const step = range / 200; // sensitivity
-    let newValue = startValue.current + deltaY * step;
-    newValue = Math.max(min, Math.min(max, newValue));
+    const step = range / 100;
+    const newValue = Math.max(min, Math.min(max, value + delta * step));
+    
+    synthEngine.updateParameter(id, newValue);
     onChange(newValue);
   };
 
-  const handleMouseUp = () => {
-    isDragging.current = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
+  const startRepeating = (delta: number) => {
+    updateValue(delta);
+    timerRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(() => {
+        updateValue(delta);
+      }, 50);
+    }, 400);
   };
 
-  const rotation = ((value - min) / (max - min)) * 270 - 135;
+  const stopRepeating = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+  };
+
+  useEffect(() => {
+    return () => stopRepeating();
+  }, []);
 
   return (
-    <div className="flex flex-col items-center gap-2" id={`knob-container-${id}`}>
+    <div className="flex flex-col items-center gap-2" id={`control-container-${id}`}>
       <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{label}</span>
-      <div 
-        className="relative w-12 h-12 rounded-full bg-[#1E1E21] border border-[#2A2A2E] cursor-ns-resize shadow-inner flex items-center justify-center group hover:border-blue-500/50 transition-colors"
-        onMouseDown={handleMouseDown}
-        id={id}
-      >
-        <motion.div 
-          className="w-0.5 h-4 bg-blue-500 rounded-full origin-bottom absolute top-2"
-          style={{ rotate: rotation }}
-          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        />
-        <div className="w-8 h-8 rounded-full border border-black/20" />
+      
+      <div className="flex items-center gap-1 bg-[#1E1E21] rounded-lg p-1 border border-[#2A2A2E]">
+        <button
+          onMouseDown={() => startRepeating(-1)}
+          onMouseUp={stopRepeating}
+          onMouseLeave={stopRepeating}
+          className="p-1.5 hover:bg-white/5 active:bg-white/10 rounded transition-colors text-slate-400 hover:text-white"
+          id={`${id}-minus`}
+        >
+          <Minus size={14} />
+        </button>
+
+        <div className="w-12 text-center bg-black/20 py-1 rounded border border-[#2A2A2E]">
+          <span className="text-[10px] font-mono text-blue-400 font-bold">
+            {max > 100 ? value.toFixed(0) : value.toFixed(2)}
+          </span>
+        </div>
+
+        <button
+          onMouseDown={() => startRepeating(1)}
+          onMouseUp={stopRepeating}
+          onMouseLeave={stopRepeating}
+          className="p-1.5 hover:bg-white/5 active:bg-white/10 rounded transition-colors text-slate-400 hover:text-white"
+          id={`${id}-plus`}
+        >
+          <Plus size={14} />
+        </button>
       </div>
-      <span className="text-[9px] font-mono text-slate-400">{value.toFixed(2)}</span>
+      
+      <div className="w-full h-1 bg-[#1E1E21] rounded-full overflow-hidden mt-1">
+        <div 
+          className="h-full bg-blue-500/50" 
+          style={{ width: `${((value - min) / (max - min)) * 100}%` }}
+        />
+      </div>
     </div>
   );
 }

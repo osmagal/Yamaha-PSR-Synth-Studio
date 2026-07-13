@@ -11,6 +11,7 @@ class SynthEngine {
   private fmSynth: Tone.PolySynth<Tone.FMSynth>;
   private amSynth: Tone.PolySynth<Tone.AMSynth>;
   private sampler: Tone.Sampler;
+  private drumSampler: Tone.Sampler;
   
   private filter: Tone.Filter;
   private filterEnvelope: Tone.FrequencyEnvelope;
@@ -21,11 +22,19 @@ class SynthEngine {
   private eq: Tone.EQ3;
   private masterVolume: Tone.Volume;
   private lfo: Tone.LFO;
+  private vibrato: Tone.Vibrato;
   
   private metronomeClick: Tone.NoiseSynth;
   private metronomeLoop: Tone.Loop | null = null;
   
+  private arpeggiator: Tone.Pattern<string> | null = null;
+  private arpNotes: string[] = [];
+
   private currentEngine: 'poly' | 'fm' | 'am' | 'sampler' = 'poly';
+  private sustainingNotes = new Set<string>();
+  private activeNotes = new Set<string>();
+  private isSustainActive = false;
+  private arpOn = false;
 
   constructor() {
     // 1. High-Performance Signal Path
@@ -37,7 +46,8 @@ class SynthEngine {
     });
 
     this.masterVolume = new Tone.Volume(0).toDestination();
-    this.filter.connect(this.masterVolume);
+    this.vibrato = new Tone.Vibrato(5, 0).connect(this.masterVolume);
+    this.filter.connect(this.vibrato);
 
     this.reverb = new Tone.Reverb({ decay: 4, wet: 0.3 }).connect(this.filter);
     this.delay = new Tone.FeedbackDelay('8n', 0.4).connect(this.reverb);
@@ -117,6 +127,16 @@ class SynthEngine {
       volume: -3
     }).connect(this.eq);
     
+    this.drumSampler = new Tone.Sampler({
+      urls: {
+        C2: "kick.mp3",
+        D2: "snare.mp3",
+        "F#2": "hihat.mp3",
+      },
+      baseUrl: "https://tonejs.github.io/audio/drum-samples/",
+      volume: -6
+    }).connect(this.masterVolume);
+
     // Initial State
     this.applyPreset('modern-poly');
 
@@ -136,6 +156,9 @@ class SynthEngine {
   // High-performance direct updates
   updateParameter(key: string, value: number) {
     switch (key) {
+      case 'portamento':
+        [this.polySynth, this.fmSynth, this.amSynth].forEach(s => s.set({ portamento: value }));
+        break;
       case 'eqLow':
         this.eq.low.value = value;
         break;
@@ -146,8 +169,8 @@ class SynthEngine {
         this.eq.high.value = value;
         break;
       case 'masterVolume':
-        // Map 0-1 to -60 to +6 dB
-        this.masterVolume.volume.value = value === 0 ? -Infinity : (value * 66) - 60;
+        // Map 0-1.2 to -60 to +6 dB
+        this.masterVolume.volume.value = value === 0 ? -Infinity : (value * 55) - 60;
         break;
       case 'cutoff':
         this.filterEnvelope.baseFrequency = value;
@@ -274,14 +297,101 @@ class SynthEngine {
 
   triggerAttack(note: string, velocity: number) {
     const time = Tone.now();
-    this.getEngine().triggerAttack(note, time, velocity);
-    this.filterEnvelope.triggerAttack(time);
+    this.activeNotes.add(note);
+    
+    if (this.arpOn) {
+      this.updateArp();
+    } else {
+      this.getEngine().triggerAttack(note, time, velocity);
+      this.filterEnvelope.triggerAttack(time);
+    }
+  }
+
+  triggerDrum(note: string, velocity: number) {
+    this.drumSampler.triggerAttack(note, Tone.now(), velocity);
   }
 
   triggerRelease(note: string) {
     const time = Tone.now();
-    this.getEngine().triggerRelease(note, time);
-    this.filterEnvelope.triggerRelease(time);
+    this.activeNotes.delete(note);
+
+    if (this.arpOn) {
+      this.updateArp();
+    } else if (this.isSustainActive) {
+      this.sustainingNotes.add(note);
+    } else {
+      this.getEngine().triggerRelease(note, time);
+      if (this.activeNotes.size === 0) {
+        this.filterEnvelope.triggerRelease(time);
+      }
+    }
+  }
+
+  setArpeggiator(on: boolean, rate: any, pattern: any) {
+    this.arpOn = on;
+    if (on) {
+      if (!this.arpeggiator) {
+        this.arpeggiator = new Tone.Pattern((time, note) => {
+          const engine = this.getEngine();
+          engine.triggerAttackRelease(note, rate, time);
+          this.filterEnvelope.triggerAttackRelease(rate, time);
+        }, [], pattern);
+      }
+      this.arpeggiator.interval = rate;
+      this.arpeggiator.pattern = pattern;
+      this.updateArp();
+      Tone.Transport.start();
+    } else {
+      this.arpeggiator?.stop();
+      // Important: release all notes if arp turned off
+      this.activeNotes.forEach(note => this.getEngine().triggerRelease(note));
+    }
+  }
+
+  private updateArp() {
+    if (!this.arpeggiator) return;
+    const notes = Array.from(this.activeNotes).sort((a, b) => Tone.Frequency(a).toMidi() - Tone.Frequency(b).toMidi());
+    
+    if (notes.length > 0) {
+      this.arpeggiator.values = notes;
+      if (this.arpeggiator.state !== 'started') {
+        this.arpeggiator.start(0);
+      }
+    } else {
+      this.arpeggiator.stop();
+    }
+  }
+
+  setSustain(active: boolean) {
+    this.isSustainActive = active;
+    if (!active) {
+      const time = Tone.now();
+      const engine = this.getEngine();
+      this.sustainingNotes.forEach(note => {
+        if (!this.activeNotes.has(note)) {
+          engine.triggerRelease(note, time);
+        }
+      });
+      this.sustainingNotes.clear();
+      if (this.activeNotes.size === 0) {
+        this.filterEnvelope.triggerRelease(time);
+      }
+    }
+  }
+
+  setPitchBend(value: number) {
+    // value is -1 to 1
+    const detune = value * 200; // 2 semitones
+    [this.polySynth, this.fmSynth, this.amSynth].forEach(s => s.set({ detune }));
+    if (this.currentEngine === 'sampler') {
+      // @ts-ignore - Sampler might have detune in some versions or via .set()
+      this.sampler.set({ detune });
+    }
+  }
+
+  setModulation(value: number) {
+    // value is 0 to 1
+    this.vibrato.depth.value = value;
   }
 
   private getEngine() {

@@ -65,19 +65,21 @@ export function Knob({ label, value, min, max, onChange, id }: KnobProps) {
     <div className="flex flex-col items-center gap-2" id={`control-container-${id}`}>
       <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{label}</span>
       
-      <div className="flex items-center gap-1 bg-[#1E1E21] rounded-lg p-1 border border-[#2A2A2E]">
+      <div className="flex items-center gap-0.5 bg-[#1E1E21] rounded-lg p-0.5 border border-[#2A2A2E]">
         <button
           onMouseDown={() => startRepeating(-1)}
           onMouseUp={stopRepeating}
           onMouseLeave={stopRepeating}
-          className="p-1.5 hover:bg-white/5 active:bg-white/10 rounded transition-colors text-slate-400 hover:text-white"
+          onTouchStart={(e) => { e.preventDefault(); startRepeating(-1); }}
+          onTouchEnd={stopRepeating}
+          className="p-1 hover:bg-white/5 active:bg-white/10 rounded transition-colors text-slate-400 hover:text-white touch-none"
           id={`${id}-minus`}
         >
-          <Minus size={14} />
+          <Minus size={10} />
         </button>
 
-        <div className="w-12 text-center bg-black/20 py-1 rounded border border-[#2A2A2E]">
-          <span className="text-[10px] font-mono text-blue-400 font-bold">
+        <div className="w-9 text-center bg-black/20 py-0.5 rounded border border-[#2A2A2E]">
+          <span className="text-[9px] font-mono text-blue-400 font-bold">
             {max > 100 ? value.toFixed(0) : value.toFixed(2)}
           </span>
         </div>
@@ -86,14 +88,16 @@ export function Knob({ label, value, min, max, onChange, id }: KnobProps) {
           onMouseDown={() => startRepeating(1)}
           onMouseUp={stopRepeating}
           onMouseLeave={stopRepeating}
-          className="p-1.5 hover:bg-white/5 active:bg-white/10 rounded transition-colors text-slate-400 hover:text-white"
+          onTouchStart={(e) => { e.preventDefault(); startRepeating(1); }}
+          onTouchEnd={stopRepeating}
+          className="p-1 hover:bg-white/5 active:bg-white/10 rounded transition-colors text-slate-400 hover:text-white touch-none"
           id={`${id}-plus`}
         >
-          <Plus size={14} />
+          <Plus size={10} />
         </button>
       </div>
       
-      <div className="w-full h-1 bg-[#1E1E21] rounded-full overflow-hidden mt-1">
+      <div className="w-full max-w-[56px] h-1 bg-[#1E1E21] rounded-full overflow-hidden mt-1">
         <div 
           className="h-full bg-blue-500/50" 
           style={{ width: `${((value - min) / (max - min)) * 100}%` }}

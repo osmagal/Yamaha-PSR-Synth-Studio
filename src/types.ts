@@ -43,9 +43,13 @@ export interface SynthSettings {
   reverbMix: number;
   chorusMix: number;
   drive: number;
+  portamento: number;
   eqLow: number;
   eqMid: number;
   eqHigh: number;
   masterVolume: number;
+  arpeggiatorOn: boolean;
+  arpeggiatorRate: '8n' | '16n' | '4n';
+  arpeggiatorPattern: 'up' | 'down' | 'upDown';
   preset: SynthPresetID;
 }

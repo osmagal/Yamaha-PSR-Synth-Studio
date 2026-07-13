@@ -22,7 +22,7 @@ class SynthEngine {
   private masterVolume: Tone.Volume;
   private lfo: Tone.LFO;
   
-  private metronomeOsc: Tone.Oscillator;
+  private metronomeClick: Tone.NoiseSynth;
   private metronomeLoop: Tone.Loop | null = null;
   
   private currentEngine: 'poly' | 'fm' | 'am' | 'sampler' = 'poly';
@@ -120,11 +120,11 @@ class SynthEngine {
     // Initial State
     this.applyPreset('modern-poly');
 
-    // Metronome setup
-    this.metronomeOsc = new Tone.Oscillator({
-      frequency: 880,
-      type: "sine",
-      volume: -15
+    // Metronome setup - "Clack" sound using NoiseSynth
+    this.metronomeClick = new Tone.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.08, sustain: 0 },
+      volume: -12
     }).toDestination();
   }
 
@@ -304,9 +304,9 @@ class SynthEngine {
     if (on) {
       if (!this.metronomeLoop) {
         this.metronomeLoop = new Tone.Loop(time => {
-          this.metronomeOsc.start(time).stop(time + 0.05);
-          // High pitch for downbeat
-          this.metronomeOsc.frequency.setValueAtTime(Tone.Transport.ticks % 1920 === 0 ? 880 : 440, time);
+          // Detect downbeat (every 4 beats)
+          const isDownbeat = Math.round(Tone.Transport.ticks / Tone.Transport.PPQ) % 4 === 0;
+          this.metronomeClick.triggerAttackRelease("16n", time, isDownbeat ? 1 : 0.4);
         }, "4n");
       }
       this.metronomeLoop.start(0);

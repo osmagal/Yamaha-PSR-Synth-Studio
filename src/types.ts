@@ -46,5 +46,6 @@ export interface SynthSettings {
   eqLow: number;
   eqMid: number;
   eqHigh: number;
+  masterVolume: number;
   preset: SynthPresetID;
 }

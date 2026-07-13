@@ -31,6 +31,7 @@ const INITIAL_SETTINGS: SynthSettings = {
   eqLow: 0,
   eqMid: 0,
   eqHigh: 0,
+  masterVolume: 0.8,
   preset: 'modern-poly'
 };
 
@@ -51,6 +52,8 @@ export default function App() {
   const [analyser, setAnalyser] = useState<Tone.Analyser | null>(null);
   const [lastNote, setLastNote] = useState<{ name: string; vel: number } | null>(null);
   const [savedPresets, setSavedPresets] = useState<Record<string, SynthSettings>>({});
+  const [metronomeOn, setMetronomeOn] = useState(false);
+  const [bpm, setBpm] = useState(120);
   const { inputs, selectedInput, setSelectedInput, onMessage } = useMIDI();
   
   useEffect(() => {
@@ -63,6 +66,12 @@ export default function App() {
       synthEngine.setSettings(settings);
     }
   }, [settings, isStarted]);
+
+  useEffect(() => {
+    if (isStarted) {
+      synthEngine.setMetronome(metronomeOn, bpm);
+    }
+  }, [metronomeOn, bpm, isStarted]);
 
   const handleStart = async () => {
     await synthEngine.init();
@@ -201,7 +210,7 @@ export default function App() {
                   </div>
                   <div className="text-center">
                     <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">Output</p>
-                    <span className="text-xs font-mono text-slate-400">-6.2 dB</span>
+                    <span className="text-xs font-mono text-slate-400">{(settings.masterVolume * 100).toFixed(0)}%</span>
                   </div>
                 </div>
               </div>
@@ -326,6 +335,58 @@ export default function App() {
                          <Knob id="delayMix" label="Dly" min={0} max={1} value={settings.delayMix} onChange={(v) => updateSetting('delayMix', v)} />
                          <Knob id="chorusMix" label="Cho" min={0} max={1} value={settings.chorusMix} onChange={(v) => updateSetting('chorusMix', v)} />
                          <Knob id="drive" label="Drv" min={0} max={1} value={settings.drive} onChange={(v) => updateSetting('drive', v)} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-12 gap-8 mb-10">
+                  {/* Master Controls Section */}
+                  <div className="col-span-12 lg:col-span-4 bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
+                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">Master Volume</h3>
+                    <div className="flex justify-center py-4">
+                       <Knob id="masterVolume" label="Master" min={0} max={1.2} value={settings.masterVolume} onChange={(v) => updateSetting('masterVolume', v)} />
+                    </div>
+                  </div>
+
+                  {/* Metronome Section */}
+                  <div className="col-span-12 lg:col-span-8 bg-[#141416] p-8 rounded-2xl border border-[#2A2A2E] shadow-xl">
+                    <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-8 tracking-widest border-b border-[#2A2A2E] pb-2">Metronome / Clock</h3>
+                    <div className="flex items-center justify-around h-full">
+                      <div className="flex flex-col items-center gap-4">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">State</p>
+                        <button 
+                          onClick={() => setMetronomeOn(!metronomeOn)}
+                          className={`w-16 h-8 rounded-full border border-[#2A2A2E] relative transition-all ${metronomeOn ? 'bg-blue-600/20' : 'bg-[#1E1E21]'}`}
+                        >
+                          <motion.div 
+                            className={`w-6 h-6 rounded-full absolute top-1 ${metronomeOn ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.6)]' : 'bg-slate-700'}`}
+                            animate={{ left: metronomeOn ? 'calc(100% - 1.75rem)' : '0.25rem' }}
+                          />
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-4">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Tempo</p>
+                        <div className="flex items-center gap-4 bg-[#1E1E21] p-3 rounded-xl border border-[#2A2A2E]">
+                          <button 
+                            onClick={() => setBpm(Math.max(40, bpm - 1))}
+                            className="w-8 h-8 flex items-center justify-center hover:bg-white/5 rounded text-slate-400"
+                          >-</button>
+                          <span className="text-2xl font-mono text-white w-20 text-center font-bold">{bpm}</span>
+                          <button 
+                            onClick={() => setBpm(Math.min(280, bpm + 1))}
+                            className="w-8 h-8 flex items-center justify-center hover:bg-white/5 rounded text-slate-400"
+                          >+</button>
+                        </div>
+                        <p className="text-[9px] text-slate-600 uppercase tracking-widest">Beats Per Minute</p>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-4">
+                         <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Tap</p>
+                         <button className="w-12 h-12 rounded-xl bg-[#1E1E21] border border-[#2A2A2E] flex items-center justify-center hover:bg-[#2A2A2E] active:scale-95 transition-all text-slate-400">
+                           <Activity size={20} />
+                         </button>
                       </div>
                     </div>
                   </div>

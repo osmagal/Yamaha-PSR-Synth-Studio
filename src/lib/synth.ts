@@ -19,7 +19,11 @@ class SynthEngine {
   private chorus: Tone.Chorus;
   private distortion: Tone.Distortion;
   private eq: Tone.EQ3;
+  private masterVolume: Tone.Volume;
   private lfo: Tone.LFO;
+  
+  private metronomeOsc: Tone.Oscillator;
+  private metronomeLoop: Tone.Loop | null = null;
   
   private currentEngine: 'poly' | 'fm' | 'am' | 'sampler' = 'poly';
 
@@ -30,7 +34,10 @@ class SynthEngine {
       type: 'lowpass',
       rolloff: -24,
       Q: 1
-    }).toDestination();
+    });
+
+    this.masterVolume = new Tone.Volume(0).toDestination();
+    this.filter.connect(this.masterVolume);
 
     this.reverb = new Tone.Reverb({ decay: 4, wet: 0.3 }).connect(this.filter);
     this.delay = new Tone.FeedbackDelay('8n', 0.4).connect(this.reverb);
@@ -55,17 +62,20 @@ class SynthEngine {
     // 4. Synthesis Engines with Voice Stealing (maxPolyphony)
     this.polySynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'sawtooth' },
-      envelope: { attack: 0.01, release: 1 }
+      envelope: { attack: 0.01, release: 1 },
+      volume: -6
     }).connect(this.distortion);
     this.polySynth.maxPolyphony = 24;
 
     this.fmSynth = new Tone.PolySynth(Tone.FMSynth, {
-      envelope: { attack: 0.01, release: 1 }
+      envelope: { attack: 0.01, release: 1 },
+      volume: -6
     }).connect(this.distortion);
     this.fmSynth.maxPolyphony = 16;
 
     this.amSynth = new Tone.PolySynth(Tone.AMSynth, {
-      envelope: { attack: 0.1, release: 2 }
+      envelope: { attack: 0.1, release: 2 },
+      volume: -6
     }).connect(this.eq);
     this.amSynth.maxPolyphony = 16;
 
@@ -103,11 +113,19 @@ class SynthEngine {
         C8: "C8.mp3"
       },
       baseUrl: "https://tonejs.github.io/audio/salamander/",
-      onload: () => console.log("Piano Samples Loaded")
+      onload: () => console.log("Piano Samples Loaded"),
+      volume: -3
     }).connect(this.eq);
     
     // Initial State
     this.applyPreset('modern-poly');
+
+    // Metronome setup
+    this.metronomeOsc = new Tone.Oscillator({
+      frequency: 880,
+      type: "sine",
+      volume: -15
+    }).toDestination();
   }
 
   async init() {
@@ -126,6 +144,10 @@ class SynthEngine {
         break;
       case 'eqHigh':
         this.eq.high.value = value;
+        break;
+      case 'masterVolume':
+        // Map 0-1 to -60 to +6 dB
+        this.masterVolume.volume.value = value === 0 ? -Infinity : (value * 66) - 60;
         break;
       case 'cutoff':
         this.filterEnvelope.baseFrequency = value;
@@ -273,6 +295,26 @@ class SynthEngine {
     const analyser = new Tone.Analyser('waveform', 1024);
     this.filter.connect(analyser);
     return analyser;
+  }
+
+  // Metronome Controls
+  setMetronome(on: boolean, bpm: number) {
+    Tone.Transport.bpm.value = bpm;
+    
+    if (on) {
+      if (!this.metronomeLoop) {
+        this.metronomeLoop = new Tone.Loop(time => {
+          this.metronomeOsc.start(time).stop(time + 0.05);
+          // High pitch for downbeat
+          this.metronomeOsc.frequency.setValueAtTime(Tone.Transport.ticks % 1920 === 0 ? 880 : 440, time);
+        }, "4n");
+      }
+      this.metronomeLoop.start(0);
+      Tone.Transport.start();
+    } else {
+      this.metronomeLoop?.stop();
+      Tone.Transport.stop();
+    }
   }
 }
 

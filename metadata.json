@@ -1,0 +1,6 @@
+{
+  "name": "Yamaha PSR Synth Studio",
+  "description": "A modern virtual synthesizer interface for the Yamaha PSR E383 keyboard with MIDI-over-USB support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

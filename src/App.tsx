@@ -6,13 +6,14 @@
 import { useState, useEffect, useRef } from 'react';
 import * as Tone from 'tone';
 import { motion, AnimatePresence } from 'motion/react';
-import { Piano, Settings2, Waves, Zap, Activity, Info, Music, Menu, X } from 'lucide-react';
+import { Piano, Settings2, Waves, Zap, Activity, Info, Music, Menu, X, Heart } from 'lucide-react';
 import { useMIDI } from './hooks/useMIDI';
 import { synthEngine } from './lib/synth';
 import { SynthSettings, SynthPresetID } from './types';
 import { Knob } from './components/Knob';
 import { Oscilloscope } from './components/Oscilloscope';
 import { EnvelopeEditor } from './components/EnvelopeEditor';
+import { DonationModal } from './components/DonationModal';
 
 const INITIAL_SETTINGS: SynthSettings = {
   cutoff: 2000,
@@ -61,6 +62,43 @@ export default function App() {
   const [bpm, setBpm] = useState(120);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { inputs, selectedInput, setSelectedInput, onMessage } = useMIDI();
+
+  // Donation states
+  const [showDonationModal, setShowDonationModal] = useState(false);
+
+  // Trigger modal display conditionally:
+  // For contributors: show after 1 month.
+  // For non-contributors: show once per session.
+  useEffect(() => {
+    if (!isStarted) return;
+
+    const lastDonation = localStorage.getItem('last_donation_timestamp');
+    const hasShownThisSession = sessionStorage.getItem('donation_modal_shown_session');
+
+    if (!lastDonation) {
+      // Never contributed: show once per session
+      if (!hasShownThisSession) {
+        const timer = setTimeout(() => {
+          setShowDonationModal(true);
+          sessionStorage.setItem('donation_modal_shown_session', 'true');
+        }, 5000); // 5 seconds delay for non-intrusive loading
+        return () => clearTimeout(timer);
+      }
+    } else {
+      // Has contributed: show only if more than 30 days have elapsed
+      const lastDonationTime = parseInt(lastDonation, 10);
+      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+      if (Date.now() - lastDonationTime > thirtyDaysMs) {
+        if (!hasShownThisSession) {
+          const timer = setTimeout(() => {
+            setShowDonationModal(true);
+            sessionStorage.setItem('donation_modal_shown_session', 'true');
+          }, 5000);
+          return () => clearTimeout(timer);
+        }
+      }
+    }
+  }, [isStarted]);
   
   useEffect(() => {
     const saved = localStorage.getItem('psr_presets');
@@ -243,6 +281,13 @@ export default function App() {
               </div>
 
               <div className="flex gap-2 sm:gap-3 w-full sm:w-auto justify-center">
+                <button 
+                  onClick={() => setShowDonationModal(true)}
+                  className="px-3 py-1.5 bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500/30 text-rose-400 text-[9px] sm:text-xs font-bold rounded-md transition-colors uppercase tracking-widest flex items-center justify-center gap-1.5 flex-1 sm:flex-none"
+                >
+                  <Heart size={12} className="fill-rose-400/20" />
+                  Apoiar
+                </button>
                 <button 
                   onClick={saveCurrentPreset}
                   className="px-3 py-1.5 bg-[#2A2A2E] hover:bg-[#35353A] text-[9px] sm:text-xs font-bold rounded-md transition-colors uppercase tracking-widest flex-1 sm:flex-none"
@@ -563,6 +608,14 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <DonationModal 
+        isOpen={showDonationModal} 
+        onClose={() => setShowDonationModal(false)} 
+        onSuccess={() => {
+          console.log("Donation successful!");
+        }}
+      />
     </div>
   );
 }

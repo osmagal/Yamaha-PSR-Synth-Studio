@@ -133,7 +133,7 @@ class SynthEngine {
         D2: "snare.mp3",
         "F#2": "hihat.mp3",
       },
-      baseUrl: "https://tonejs.github.io/audio/drum-samples/",
+      baseUrl: "https://tonejs.github.io/audio/drum-samples/CR78/",
       volume: -6
     }).connect(this.masterVolume);
 

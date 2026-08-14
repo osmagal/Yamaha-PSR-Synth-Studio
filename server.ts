@@ -160,9 +160,12 @@ async function startServer() {
     });
   }
 
-  // 2. Direct-to-Gateway Polling Status Endpoint
-  app.get("/api/donations/status/:orderId", async (req, res) => {
-    const { orderId } = req.params;
+  // 2. Direct-to-Gateway Polling Status Endpoint (Supports both /api/donations/status/:orderId and /api/donations/status?orderId=X)
+  const handleStatusCheck = async (req: any, res: any) => {
+    const orderId = (req.params.orderId || req.query.orderId) as string;
+    if (!orderId) {
+      return res.status(400).json({ error: "Missing orderId" });
+    }
     const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
 
     // A. Payments API Polling
@@ -214,11 +217,22 @@ async function startServer() {
           console.log(`[Simulator] Payment auto-approved for ${orderId}`);
         }
         return res.json({ status: simulated.status });
+      } else {
+        // Fallback for stateless polling of simulation IDs
+        const timestampStr = orderId.replace("mp_order_simulado_", "");
+        const createdAt = parseInt(timestampStr, 10);
+        const elapsed = Date.now() - createdAt;
+        if (elapsed > 15000) {
+          return res.json({ status: "approved" });
+        }
       }
     }
 
     return res.json({ status: "pending" });
-  });
+  };
+
+  app.get("/api/donations/status", handleStatusCheck);
+  app.get("/api/donations/status/:orderId", handleStatusCheck);
 
   // 3. Webhooks IPN Endpoint
   app.post("/api/donations/webhook", async (req, res) => {

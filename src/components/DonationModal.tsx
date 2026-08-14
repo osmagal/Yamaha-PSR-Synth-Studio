@@ -29,7 +29,7 @@ export function DonationModal({ isOpen, onClose, onSuccess }: DonationModalProps
     let intervalId: any;
     const checkStatus = async () => {
       try {
-        const response = await fetch(`/api/donations/status/${pixData.orderId}`);
+        const response = await fetch(`/api/donations/status?orderId=${pixData.orderId}`);
         if (response.ok) {
           const data = await response.json();
           if (data.status === "approved") {
